@@ -1739,6 +1739,24 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error(data.error || 'Failed to start download.');
       }
 
+      if (data.already_downloaded) {
+        showToast(`⚡ Already downloaded! File ready: "${data.title || downloadTitle}"`, 'success');
+        const completedTask = {
+          id: data.task_id,
+          title: data.title || downloadTitle,
+          filename: data.filename,
+          filepath: data.filepath,
+          status: 'completed',
+          percent: 100,
+          download_url: `/api/files/serve/${encodeURIComponent(data.filename)}?download=1`,
+          _autoDownloaded: true
+        };
+        tasksMap.set(data.task_id, completedTask);
+        createTaskCard(data.task_id, payload);
+        updateTaskProgress(data.task_id, completedTask, null, true);
+        return;
+      }
+
       showToast(`Started downloading: "${downloadTitle.slice(0, 32)}..."`, 'info');
       createTaskCard(data.task_id, payload);
       listenToTaskProgress(data.task_id);
@@ -1847,7 +1865,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  function updateTaskProgress(taskId, task, evtSource) {
+  function updateTaskProgress(taskId, task, evtSource, isRecovery = false) {
     const card = document.getElementById(`task-${taskId}`);
     if (!card) return;
 
@@ -1973,12 +1991,14 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
       }
 
-      // Auto-trigger direct download to device Downloads folder if enabled
-      if (isAutoDeviceDownloadEnabled && dlUrl && !task._autoDownloaded) {
+      // Auto-trigger direct download to device Downloads folder only for active downloads, NEVER on page load recovery
+      if (!isRecovery && isAutoDeviceDownloadEnabled && dlUrl && !task._autoDownloaded) {
         task._autoDownloaded = true;
         setTimeout(() => {
           triggerDeviceDownload(task.filename, dlUrl);
         }, 400);
+      } else {
+        task._autoDownloaded = true;
       }
 
       runningTasksCount = Math.max(0, runningTasksCount - 1);
@@ -2078,6 +2098,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const taskList = await tasksRes.json();
       if (Array.isArray(taskList) && taskList.length > 0) {
         taskList.forEach(task => {
+          task._autoDownloaded = true;
           tasksMap.set(task.id, task);
           if (!document.getElementById(`task-${task.id}`)) {
             createTaskCard(task.id, {
@@ -2088,7 +2109,7 @@ document.addEventListener('DOMContentLoaded', () => {
               resolution: task.quality,
               status: task.status,
             });
-            updateTaskProgress(task.id, task, null);
+            updateTaskProgress(task.id, task, null, true);
             if (task.status === 'starting' || task.status === 'downloading' || task.status === 'paused' || task.status === 'queued') {
               listenToTaskProgress(task.id);
             }

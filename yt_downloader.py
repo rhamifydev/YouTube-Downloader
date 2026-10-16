@@ -73,14 +73,28 @@ def build_ydl_opts(args):
             "preferredcodec": args.audio_format,
             "preferredquality": "192",
         }]
-    elif args.resolution:
-        opts["format"] = (
-            f"bestvideo[height<={args.resolution}]+bestaudio/"
-            f"best[height<={args.resolution}]/"
-            f"bestvideo+bestaudio/best"
-        )
     else:
-        opts["format"] = "bestvideo+bestaudio/best"
+        if ffmpeg_exe:
+            opts["merge_output_format"] = "mp4"
+            opts["postprocessors"] = [{
+                "key": "FFmpegVideoRemuxer",
+                "preferedformat": "mp4",
+            }]
+        if args.resolution:
+            opts["format"] = (
+                f"bestvideo[height<={args.resolution}][ext=mp4]+bestaudio[ext=m4a]/"
+                f"bestvideo[height<={args.resolution}]+bestaudio/"
+                f"best[height<={args.resolution}][ext=mp4]/"
+                f"best[height<={args.resolution}]/"
+                f"bestvideo+bestaudio/best"
+            )
+        else:
+            opts["format"] = (
+                "bestvideo[ext=mp4]+bestaudio[ext=m4a]/"
+                "bestvideo+bestaudio/"
+                "best[ext=mp4]/"
+                "best"
+            )
 
     return opts
 

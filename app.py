@@ -625,6 +625,7 @@ def run_download_thread(task_id, url, options):
         "quiet": True,
         "no_warnings": True,
         "continuedl": True,  # Resume partially downloaded files
+        "nooverwrites": True,  # Prevent overwriting existing completed files
         "retries": 10,  # Auto-retry on temporary connection/server errors
         "fragment_retries": 10,
         "skip_unavailable_fragments": False,
@@ -660,30 +661,39 @@ def run_download_thread(task_id, url, options):
         # Check resolution specification
         is_auto_res = not resolution or str(resolution).lower() in ("auto", "best")
         if ffmpeg_available:
+            ydl_opts["merge_output_format"] = "mp4"
+            ydl_opts["postprocessors"] = [{
+                "key": "FFmpegVideoRemuxer",
+                "preferedformat": "mp4",
+            }]
             if not is_auto_res:
-                # Fallback chain:
-                # 1. Video <= requested height + best audio
-                # 2. Single progressive format <= requested height
-                # 3. Best video + best audio (auto-select best available if requested is unavailable)
-                # 4. Best single format
+                # Prefer native MP4/M4A streams first; otherwise merge/remux to MP4
                 ydl_opts["format"] = (
+                    f"bestvideo[height<={resolution}][ext=mp4]+bestaudio[ext=m4a]/"
                     f"bestvideo[height<={resolution}]+bestaudio/"
+                    f"best[height<={resolution}][ext=mp4]/"
                     f"best[height<={resolution}]/"
                     f"bestvideo+bestaudio/"
                     f"best"
                 )
             else:
-                ydl_opts["format"] = "bestvideo+bestaudio/best"
+                ydl_opts["format"] = (
+                    "bestvideo[ext=mp4]+bestaudio[ext=m4a]/"
+                    "bestvideo+bestaudio/"
+                    "best[ext=mp4]/"
+                    "best"
+                )
         else:
-            # When ffmpeg is not present, merge is not supported so we select progressive streams with fallback
+            # When ffmpeg is not present, prefer progressive mp4 streams
             if not is_auto_res:
                 ydl_opts["format"] = (
+                    f"best[height<={resolution}][ext=mp4]/"
                     f"best[height<={resolution}]/"
-                    f"best[height>={resolution}]/"
+                    f"best[height>={resolution}][ext=mp4]/"
                     f"best"
                 )
             else:
-                ydl_opts["format"] = "best"
+                ydl_opts["format"] = "best[ext=mp4]/best"
 
     # Wait for available concurrency slot
     if is_task_cancelled(task_id):
@@ -812,6 +822,47 @@ def start_download():
     url = sanitize_media_url(data.get("url") or "")
     if not url:
         return jsonify({"error": "No valid URL provided"}), 400
+
+    # Check if this exact URL was already downloaded and file exists
+    force_redownload = data.get("force_redownload", False)
+    if not force_redownload and not data.get("is_playlist"):
+        history = load_history()
+        for h in history:
+            if h.get("url") == url:
+                fp = h.get("filepath")
+                fn = h.get("filename")
+                if fp and os.path.exists(fp) and os.path.getsize(fp) > 0:
+                    task_id = str(uuid.uuid4())
+                    with tasks_lock:
+                        tasks[task_id] = {
+                            "id": task_id,
+                            "url": url,
+                            "title": h.get("title") or fn,
+                            "thumbnail": h.get("thumbnail") or "",
+                            "status": "completed",
+                            "percent": 100.0,
+                            "speed": "Completed",
+                            "eta": "Ready",
+                            "total_bytes": os.path.getsize(fp),
+                            "downloaded_bytes": os.path.getsize(fp),
+                            "filename": fn,
+                            "filepath": fp,
+                            "download_url": h.get("download_url") or f"/api/files/serve/{urllib.parse.quote(fn)}?download=1",
+                            "error": None,
+                            "is_audio": h.get("type") == "audio",
+                            "quality": h.get("format") or "Best",
+                            "start_time": time.time(),
+                            "is_playlist": False,
+                            "options": data,
+                        }
+                    return jsonify({
+                        "success": True,
+                        "task_id": task_id,
+                        "already_downloaded": True,
+                        "title": h.get("title") or fn,
+                        "filename": fn,
+                        "filepath": fp
+                    })
 
     task_id = str(uuid.uuid4())
     # Create pause event (set = running)
