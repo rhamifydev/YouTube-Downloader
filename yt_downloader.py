@@ -45,12 +45,14 @@ def get_ffmpeg_path():
 
 def build_ydl_opts(args):
     """Construct yt-dlp options based on parsed CLI arguments."""
-    output_template = f"{args.output}/%(title)s.%(ext)s"
+    output_template = f"{args.output}/%(title).80B.%(ext)s"
     if args.playlist:
-        output_template = f"{args.output}/%(playlist)s/%(title)s.%(ext)s"
+        output_template = f"{args.output}/%(playlist).50B/%(title).80B.%(ext)s"
 
     opts = {
         "outtmpl": output_template,
+        "trim_file_name": 80,
+        "windowsfilenames": True,
         "progress_hooks": [progress_hook],
         "noplaylist": not args.playlist,
         "quiet": False,

@@ -1311,12 +1311,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  function decodeHtmlEntities(str) {
+    if (!str) return '';
+    const txt = document.createElement('textarea');
+    txt.innerHTML = str;
+    return txt.value;
+  }
+
   // --- Render Preview Card ---
   function renderPreview(data) {
     previewSection.style.display = 'block';
     previewThumb.src = data.thumbnail || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600';
-    previewTitle.textContent = data.title || 'Untitled Video';
-    previewChannel.textContent = data.uploader || 'Creator / Source';
+    previewTitle.textContent = decodeHtmlEntities(data.title) || 'Untitled Video';
+    previewChannel.textContent = decodeHtmlEntities(data.uploader) || 'Creator / Source';
 
     // Update Platform Source Badge
     if (previewPlatformBadge) {
@@ -2014,8 +2021,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       if (statusEl) {
         const errorMsg = task.error || 'Connection interrupted';
-        let friendly = 'Download failed';
-        if (errorMsg.includes('500') || errorMsg.includes('Internal Server Error')) {
+        if (errorMsg.includes('File name too long') || errorMsg.includes('Errno 36')) {
+          friendly = 'Filename too long — Safe auto-truncation applied on retry';
+        } else if (errorMsg.includes('500') || errorMsg.includes('Internal Server Error')) {
           friendly = 'Server 500 error — Tap Retry to continue';
         } else if (errorMsg.includes('10054') || errorMsg.includes('closed by the remote host')) {
           friendly = 'Connection dropped — Tap Retry to continue';

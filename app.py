@@ -4,6 +4,7 @@ YouTube Downloader Web Application Backend
 Powered by Flask & yt-dlp
 """
 
+import html
 import json
 import os
 import queue
@@ -491,7 +492,7 @@ def get_video_info():
                     formatted_entries.append({
                         "index": idx,
                         "id": v_id,
-                        "title": e.get("title") or f"Video #{idx}",
+                        "title": html.unescape(e.get("title") or f"Video #{idx}"),
                         "url": v_url,
                         "duration": format_duration(e.get("duration")),
                         "thumbnail": v_thumb,
@@ -499,10 +500,10 @@ def get_video_info():
 
                 return jsonify({
                     "is_playlist": True,
-                    "title": info.get("title", "Playlist"),
+                    "title": html.unescape(info.get("title", "Playlist")),
                     "item_count": len(valid_entries),
                     "thumbnail": sample_thumb,
-                    "uploader": info.get("uploader") or info.get("channel") or "Unknown",
+                    "uploader": html.unescape(info.get("uploader") or info.get("channel") or "Unknown"),
                     "url": url,
                     "resolutions": [1080, 720, 480, 360],
                     "entries": formatted_entries,
@@ -536,8 +537,8 @@ def get_video_info():
             return jsonify({
                 "is_playlist": False,
                 "id": info.get("id"),
-                "title": info.get("title"),
-                "uploader": info.get("uploader") or info.get("channel") or "Unknown",
+                "title": html.unescape(info.get("title") or "Video"),
+                "uploader": html.unescape(info.get("uploader") or info.get("channel") or "Unknown"),
                 "duration": format_duration(info.get("duration")),
                 "duration_raw": info.get("duration"),
                 "views": info.get("view_count"),
@@ -567,9 +568,10 @@ def run_download_thread(task_id, url, options):
     ffmpeg_exe = get_ffmpeg_path()
     ffmpeg_available = ffmpeg_exe is not None
 
-    outtmpl = str(download_dir / "%(title)s.%(ext)s")
+    # Truncate filename component to at most 80 bytes to strictly prevent "[Errno 36] File name too long" on Linux/ext4/Android/Windows
+    outtmpl = str(download_dir / "%(title).80B.%(ext)s")
     if is_playlist:
-        outtmpl = str(download_dir / "%(playlist)s" / "%(title)s.%(ext)s")
+        outtmpl = str(download_dir / "%(playlist).50B" / "%(title).80B.%(ext)s")
 
     def progress_hook(d):
         if is_task_cancelled(task_id):
@@ -620,6 +622,8 @@ def run_download_thread(task_id, url, options):
 
     ydl_opts = {
         "outtmpl": outtmpl,
+        "trim_file_name": 80,
+        "windowsfilenames": True,  # Clean illegal characters across Windows and Linux
         "progress_hooks": [progress_hook],
         "noplaylist": not is_playlist,
         "quiet": True,
@@ -715,7 +719,7 @@ def run_download_thread(task_id, url, options):
             if not is_playlist:
                 # Extract video info first to store metadata and detect actual resolution
                 meta = ydl.extract_info(url, download=False)
-                video_title = meta.get("title", "Video") if meta else "Video"
+                video_title = html.unescape(meta.get("title", "Video")) if meta else "Video"
                 thumb = meta.get("thumbnail") or "" if meta else ""
 
                 # Detect actual resolution that will be downloaded
@@ -810,6 +814,7 @@ def run_download_thread(task_id, url, options):
                 if task_id in tasks and not tasks[task_id].get("dismissed"):
                     tasks[task_id]["status"] = "error"
                     tasks[task_id]["error"] = str(e)
+            remove_pending_download(task_id)
     finally:
         clear_task_cancel(task_id)
         # Free slot for the next queued download
